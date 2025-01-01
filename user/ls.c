@@ -28,7 +28,7 @@ ls(char *path)
   char buf[512], *p;
   int fd;
   struct dirent de;
-  struct stat st;
+  struct stat st; // 文件或目录的状态信息
 
   if((fd = open(path, 0)) < 0){
     fprintf(2, "ls: cannot open %s\n", path);
@@ -42,10 +42,12 @@ ls(char *path)
   }
 
   switch(st.type){
+  // 如果是普通文件，则直接输出文件名、文件类型、文件 inode 、文件大小
   case T_FILE:
     printf("%s %d %d %l\n", fmtname(path), st.type, st.ino, st.size);
     break;
 
+  // 如果目标路径是一个目录时
   case T_DIR:
     if(strlen(path) + 1 + DIRSIZ + 1 > sizeof buf){
       printf("ls: path too long\n");
@@ -57,8 +59,9 @@ ls(char *path)
     while(read(fd, &de, sizeof(de)) == sizeof(de)){
       if(de.inum == 0)
         continue;
-      memmove(p, de.name, DIRSIZ);
-      p[DIRSIZ] = 0;
+      memmove(p, de.name, DIRSIZ); //memmove 通过对内存地址的分类分别采取正向和反向复制的方法解决重叠问题
+      p[DIRSIZ] = 0; // 等效于 p[DIRSIZ] = '\0';
+      //对读取到的文件进行状态判断
       if(stat(buf, &st) < 0){
         printf("ls: cannot stat %s\n", buf);
         continue;

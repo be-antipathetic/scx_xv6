@@ -1,0 +1,14 @@
+{
+    "files.associations": {
+        "*.md": "markdown",
+        "stat.h": "c",
+        "types.h": "c",
+        "user.h": "c",
+        "fs.h": "c",
+        "cmath": "c",
+        "type_traits": "c",
+        "limits": "c",
+        "typeinfo": "c",
+        "param.h": "c"
+    }
+}
