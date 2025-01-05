@@ -14,13 +14,14 @@ void freerange(void *pa_start, void *pa_end);
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
 
+// 用来维护空闲页的链表指针
 struct run {
   struct run *next;
 };
 
 struct {
   struct spinlock lock;
-  struct run *freelist;
+  struct run *freelist;  // 内存块表头指针，指向空闲内存链表头
 } kmem;
 
 void
@@ -79,4 +80,20 @@ kalloc(void)
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
+}
+
+//获取空闲内存
+void scx_freebytes(uint64  *dst)
+{
+  *dst = 0 ;
+  struct  run *p =kmem.freelist;  // 定义 run 类型指针指向内存中的空闲列表
+
+  acquire(&kmem.lock); //加锁保证线程安全
+  while(p)
+  {
+    *dst += PGSIZE ;  // 统计空闲字节数， PGSIZE 代表一页有多少字节
+    p=p->next; //指向下页内存
+  }
+  release(&kmem.lock);
+  
 }

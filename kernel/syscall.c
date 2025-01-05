@@ -31,6 +31,8 @@ fetchstr(uint64 addr, char *buf, int max)
   return strlen(buf);
 }
 
+
+//获取用户态传入的参数，a0-a5 寄存器在发起系统调用时用来存储命令行参数
 static uint64
 argraw(int n)
 {
@@ -104,7 +106,10 @@ extern uint64 sys_unlink(void);
 extern uint64 sys_wait(void);
 extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
+extern uint64 sys_trace(void); // 全局声明 trace 系统调用处理函数
+extern uint64 sys_sysinfo(void); // 全局声明 sysinfo 系统调用处理函数
 
+//函数指针数组 syscalls，数组中存放了相应系统调用函数的地址
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
 [SYS_exit]    sys_exit,
@@ -127,20 +132,64 @@ static uint64 (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+[SYS_trace]   sys_trace,  // 将系统调用号与处理函数关联
+[SYS_sysinfo]    sys_sysinfo, // 将系统调用号与处理函数关联
 };
+
+//调用系统函数名称的字符串指针数组
+const  char* scx_syscall_names[] = {
+[SYS_fork]   "fork" ,
+[SYS_exit]   "exit" ,
+[SYS_wait]   "wait" ,
+[SYS_pipe]   "pipe" ,
+[SYS_read]   "read" ,
+[SYS_kill]   "kill" ,
+[SYS_exec]   "exec"  ,
+[SYS_fstat]  "fstat" ,
+[SYS_chdir]  "chdir" ,
+[SYS_dup]    "dup"    ,
+[SYS_getpid] "getpid" ,
+[SYS_sbrk]   "sbrk"  ,
+[SYS_sleep]  "sleep" ,
+[SYS_uptime]  "uptime" ,
+[SYS_open]    "open" ,
+[SYS_write]   "write",
+[SYS_mknod]   "mknod",
+[SYS_link]    "link" ,
+[SYS_mkdir]   "mkdir",
+[SYS_close]   "close",
+[SYS_trace]   "trace",
+[SYS_sysinfo] "sysinfo",
+};
+
 
 void
 syscall(void)
 {
   int num;
+  //调用 myproc 函数获取当前正在运行的进程 p 的指针
   struct proc *p = myproc();
 
+  //从当前进程 p 的 trapframe 结构体中的 a7 寄存器获取系统调用号
+  //risc-v 架构，用户态将系统调用号放置在 a7 寄存器中
   num = p->trapframe->a7;
   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
+    //满足条件则从系统调用表 syscalls 中找到对应系统调用号的函数指针执行
+    //将结果存储在 a0 寄存器中
     p->trapframe->a0 = syscalls[num]();
+    
+    //如果当前进程启用了trace跟踪，则打印出进程信息
+    //只有系统调用 trace 向掩码中赋值，否则其掩码为0
+    if((p->scx_syscall_trace>>num)&1)
+    {
+      printf("%d : syscall %s -> %d\n",p->pid , scx_syscall_names[num], p->trapframe->a0);
+    }
+    
   } else {
     printf("%d %s: unknown sys call %d\n",
             p->pid, p->name, num);
+
+    // 系统调用的返回结果存放在 a0 寄存器中
     p->trapframe->a0 = -1;
   }
 }

@@ -6,6 +6,7 @@
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "sysinfo.h" // sysinfo结构体声明的文件
 
 uint64
 sys_exit(void)
@@ -94,4 +95,39 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+
+//读取用户态传入的系统调用掩码，该掩码决定了在处理系统调用时有哪些需要被追踪
+uint64
+sys_trace(void)
+{
+  int mask ; // 掩码
+  if(argint(0,&mask)<0)  //将寄存器 a0 的值存入 mask.
+    return -1 ;
+
+  myproc()->scx_syscall_trace = mask ; //设置调用进程的 kama_syscall_trace 演码 mask
+
+  return 0 ;
+
+}
+
+//获取内存中空间的内存、已经创建出的进程的数量
+uint64
+sys_sysinfo(void)
+{
+  struct sysinfo info; //定义一个 sysinfo 变量
+  scx_freebytes(&info.freemem); //获取空闲内存
+  scx_procnum(&info.nproc); //获取进程数量
+
+  //获取用户虚拟地址
+  uint64 dstaddr;
+  argaddr(0,&dstaddr);
+
+  //从内核空间拷贝数据到用户空间
+  if(copyout(myproc()->pagetable,dstaddr,(char*)&info,sizeof info) <0)
+  {
+    return -1;
+  }
+  return 0 ;
 }

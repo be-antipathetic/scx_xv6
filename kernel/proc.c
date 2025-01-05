@@ -8,7 +8,7 @@
 
 struct cpu cpus[NCPU];
 
-struct proc proc[NPROC];
+struct proc proc[NPROC];  // 记录了所有的进程
 
 struct proc *initproc;
 
@@ -126,6 +126,8 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+  
+  p->scx_syscall_trace = 0;  // 创建新进程的时候， kama_syscall_trace 设置为默认值0 
 
   return p;
 }
@@ -150,6 +152,7 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  // p->scx_syscall_trace = 0 ; // 将trace系统调用也归零
 }
 
 // Create a user page table for a given process,
@@ -296,6 +299,8 @@ fork(void)
   np->state = RUNNABLE;
 
   release(&np->lock);
+
+  np->scx_syscall_trace = p->scx_syscall_trace; // 子进程继承父进程的 syscall_trace  
 
   return pid;
 }
@@ -691,5 +696,19 @@ procdump(void)
       state = "???";
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
+  }
+}
+
+//统计处于活动状态的进程
+// 进程的 state 属性代表是否使用，遍历进程表 proc 来统计
+void
+scx_procnum(uint64 *dst)
+{
+  *dst = 0 ;
+  struct proc *p;
+  for (p=proc;p<&proc[NPROC];p++)
+  {
+    if( p->state != UNUSED )
+    (*dst)++;
   }
 }

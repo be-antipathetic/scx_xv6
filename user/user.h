@@ -1,5 +1,6 @@
 struct stat;
 struct rtcdate;
+struct sysinfo;  //声明 sysinfo 结构提，使用户程序可以使用这个结构体
 
 // system calls
 int fork(void);
@@ -23,6 +24,8 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+int trace(int) ;  // 用户程序可以找到 trace 系统调用的跳板入口函数
+int sysinfo(struct sysinfo*); // 用户程序可以找到 sysinfo 系统调用的跳板入口函数
 
 // ulib.c
 int stat(const char*, struct stat*);
