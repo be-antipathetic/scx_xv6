@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "*.md": "markdown",
+        "types.h": "c",
+        "defs.h": "c",
+        "riscv.h": "c"
+    }
+}

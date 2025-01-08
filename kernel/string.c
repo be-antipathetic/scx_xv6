@@ -3,6 +3,7 @@
 void*
 memset(void *dst, int c, uint n)
 {
+  // char 占用一个字节，将其强制类型转换为char按字节进行操作
   char *cdst = (char *) dst;
   int i;
   for(i = 0; i < n; i++){
