@@ -320,26 +320,27 @@ sfence_vma()
 }
 
 
-#define PGSIZE 4096 // bytes per page
+#define PGSIZE 4096 // bytes per page  页面大小为 4KB 
 #define PGSHIFT 12  // bits of offset within a page
 
-#define PGROUNDUP(sz)  (((sz)+PGSIZE-1) & ~(PGSIZE-1))
-#define PGROUNDDOWN(a) (((a)) & ~(PGSIZE-1))
+#define PGROUNDUP(sz)  (((sz)+PGSIZE-1) & ~(PGSIZE-1)) // 向上取整
+#define PGROUNDDOWN(a) (((a)) & ~(PGSIZE-1)) // 向下取整 清空 a 地址中的偏移量 offset
 
-#define PTE_V (1L << 0) // valid
-#define PTE_R (1L << 1)
-#define PTE_W (1L << 2)
-#define PTE_X (1L << 3)
+#define PTE_V (1L << 0) // valid  PTE_V 指示PTE是否存在
+#define PTE_R (1L << 1) // 控制是否允许指令读取到页面
+#define PTE_W (1L << 2) // 控制是否允许指令写入到页面
+#define PTE_X (1L << 3) // 
 #define PTE_U (1L << 4) // 1 -> user can access
 
 // shift a physical address to the right place for a PTE.
-#define PA2PTE(pa) ((((uint64)pa) >> 12) << 10)
+#define PA2PTE(pa) ((((uint64)pa) >> 12) << 10)//将物理地址放入PTE中
 
-#define PTE2PA(pte) (((pte) >> 10) << 12)
+#define PTE2PA(pte) (((pte) >> 10) << 12) // 将PTE中的物理地址提取出来
 
-#define PTE_FLAGS(pte) ((pte) & 0x3FF)
+#define PTE_FLAGS(pte) ((pte) & 0x3FF) //提取PTE中的标志位
 
 // extract the three 9-bit page table indices from a virtual address.
+// 从虚拟地址中提取 9 bit 的level
 #define PXMASK          0x1FF // 9 bits
 #define PXSHIFT(level)  (PGSHIFT+(9*(level)))
 #define PX(level, va) ((((uint64) (va)) >> PXSHIFT(level)) & PXMASK)
@@ -350,5 +351,6 @@ sfence_vma()
 // that have the high bit set.
 #define MAXVA (1L << (9 + 9 + 9 + 12 - 1))
 
-typedef uint64 pte_t;
-typedef uint64 *pagetable_t; // 512 PTEs
+// pte 为页表项，为64个字节，risc-v Sv39 架构为三级页表，每个页表大小为 4KB
+typedef uint64 pte_t;   // pte 页表项
+typedef uint64 *pagetable_t; // 512 PTEs  指向RICS-V 页的指针
