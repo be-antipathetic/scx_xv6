@@ -21,8 +21,9 @@ extern char trampoline[]; // trampoline.S
 void
 kvminit()
 {
-  kernel_pagetable = (pagetable_t) kalloc();
-  memset(kernel_pagetable, 0, PGSIZE);
+  //分配一个物理内存页来保存根页表页
+  kernel_pagetable = (pagetable_t) kalloc(); 
+  memset(kernel_pagetable, 0, PGSIZE);// 将根页表页全部填充为0,填充4096个字节的0
 
   // uart registers
   kvmmap(UART0, UART0, PGSIZE, PTE_R | PTE_W);
@@ -71,26 +72,37 @@ kvminithart()
 pte_t *
 walk(pagetable_t pagetable, uint64 va, int alloc)
 {
+  //如果超过虚拟内存可以表达的最大值则发生报错
   if(va >= MAXVA)
     panic("walk");
 
+  //读取虚拟地址中的 level 指示位，循环两次
   for(int level = 2; level > 0; level--) {
+    // PX 宏用来提取对应 level 的 9bit 数据
+    // pagetable[n] 代表从起始位置偏移n个 uint64 大小的内存单元取出的内容
     pte_t *pte = &pagetable[PX(level, va)];
+    // 如果 pte 存在
     if(*pte & PTE_V) {
+      //提取对应的物理地址,将页表指针指向更新
       pagetable = (pagetable_t)PTE2PA(*pte);
     } else {
+      //如果pte不存在，alloc 为标志位，指定是否允许分配新页表
+      //kalloc() 分配一个新的物理内存页. pagetable 指向下一级页表的第一个页表项
       if(!alloc || (pagetable = (pde_t*)kalloc()) == 0)
         return 0;
+      //新页表初始化
       memset(pagetable, 0, PGSIZE);
+      //更新旧页表项中的内容，将其中的ppn更新为新页表的地址
       *pte = PA2PTE(pagetable) | PTE_V;
     }
   }
+  //此时 pagetable 指针指向最后一级页表首, pagetable[PX(0, va)]取最后一级页表的页表项
   return &pagetable[PX(0, va)];
 }
 
 // Look up a virtual address, return the physical address,
 // or 0 if not mapped.
-// Can only be used to look up user pages.
+// Can only be used to look up user pages. 
 uint64
 walkaddr(pagetable_t pagetable, uint64 va)
 {
@@ -114,9 +126,11 @@ walkaddr(pagetable_t pagetable, uint64 va)
 // add a mapping to the kernel page table.
 // only used when booting.
 // does not flush TLB or enable paging.
+// 专门负责建设一个内核的页表
 void
 kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)
 {
+  // 调用 mappages 函数在 kernel_pagetable 内核页表中建立虚拟地址到物理地址的映射
   if(mappages(kernel_pagetable, va, sz, pa, perm) != 0)
     panic("kvmmap");
 }
@@ -153,14 +167,18 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
 
   a = PGROUNDDOWN(va);
   last = PGROUNDDOWN(va + size - 1);
+  //无条件循环
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
+    // 当前 pte 已经有对应的映射关系
     if(*pte & PTE_V)
       panic("remap");
+    // 将物理地址填充至虚拟地址对应页表项
     *pte = PA2PTE(pa) | perm | PTE_V;
     if(a == last)
       break;
+    // 继续下一页的映射
     a += PGSIZE;
     pa += PGSIZE;
   }
@@ -386,7 +404,7 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
       return -1;
-    n = PGSIZE - (srcva - va0);
+    n = PGSIZE - (srcva - va0); 
     if(n > len)
       n = len;
     memmove(dst, (void *)(pa0 + (srcva - va0)), n);
@@ -439,4 +457,41 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+//递归打印页表
+int
+scx_pgtblprint( pagetable_t pagetable , int depth)
+{
+  //遍历每个页表，每个页表有512项 pte
+  for ( int i = 0 ; i<512 ; i++)
+  {
+    pte_t pte = pagetable[i]; // 获取页表项, pagetable[i]=*(pagetable+i)
+    
+    if(pte & PTE_V){ // 如果获取的页表项有效，则打印出来
+      printf("..") ; //根页表打印出一个 .. 符号
+      //递归调用时，根据深度打印
+      for (int j =0 ; j< depth ; j++)
+      printf("..");
+      // 打印出页表项中的内容
+      printf("%d: pte %p pa %p\n" , i, pte,PTE2PA(pte)) ;
+      //如果该节点不是叶节点，递归打印叶节点
+      //当一个页表项指向的是一个最终的内存页时，会设置相应的访问权限
+      if((pte &(PTE_R | PTE_W | PTE_X)) == 0 )
+      {
+        //代表还有下一级页表， PTE2PA(pte) 已经是一个地址值
+        pagetable_t nextpagetable =(pagetable_t)PTE2PA(pte);
+        scx_pgtblprint(nextpagetable,depth+1);
+      }
+    }
+
+  }
+  return 0 ;
+}
+//打印页表
+int  scx_vmprint(pagetable_t pagetable)
+{
+  printf("page table %p\n",pagetable);
+  return scx_pgtblprint(pagetable,0);
+
 }
