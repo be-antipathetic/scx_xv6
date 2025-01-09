@@ -26,20 +26,23 @@ void
 procinit(void)
 {
   struct proc *p;
-  
+  //初始化锁，锁名为 'nextpid'
   initlock(&pid_lock, "nextpid");
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
 
-      // Allocate a page for the process's kernel stack.
-      // Map it high in memory, followed by an invalid
-      // guard page.
-      char *pa = kalloc();
-      if(pa == 0)
-        panic("kalloc");
-      uint64 va = KSTACK((int) (p - proc));
-      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-      p->kstack = va;
+      // 注释掉以下代码(为所有进程预分配内核栈的代码)-> 现在需要在创建进程时为每个进程创建一个内核栈
+      // // Allocate a page for the process's kernel stack.
+      // // Map it high in memory, followed by an invalid
+      // // guard page.
+      // char *pa = kalloc();
+      // if(pa == 0)
+      //   panic("kalloc");
+      // //KSTACK 计算内核栈对应的虚拟地址
+      // uint64 va = KSTACK((int) (p - proc));
+      // 将内核栈添加至内核中的页表中
+      // kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+      // p->kstack = va;
   }
   kvminithart();
 }
@@ -89,14 +92,20 @@ allocpid() {
 // If found, initialize state required to run in the kernel,
 // and return with p->lock held.
 // If there are no free procs, or a memory allocation fails, return 0.
+// 在进程表中查找一个处于未使用状态的进程。
+// 如果找到，初始化在内核中运行所需的状态，
+// 并在持有p->lock锁的情况下返回。
+// 如果没有空闲进程，或者内存分配失败，则返回 0。
 static struct proc*
 allocproc(void)
 {
   struct proc *p;
-
+  // 遍历进程表，寻找 unused 的槽位
   for(p = proc; p < &proc[NPROC]; p++) {
+    // 避免多进程同时修改一个进程结构体引发的竞争问题
     acquire(&p->lock);
     if(p->state == UNUSED) {
+      // 跳转至找到
       goto found;
     } else {
       release(&p->lock);
@@ -105,6 +114,7 @@ allocproc(void)
   return 0;
 
 found:
+  //分配一个唯一的 pid
   p->pid = allocpid();
 
   // Allocate a trapframe page.
@@ -121,6 +131,18 @@ found:
     return 0;
   }
 
+  // 创建一个内核页表
+  p->scx_kernelpgtbl = scx_kvminit_newpgtbl();
+  // 将内核栈添加至进程中的内核页表
+    char *pa = (char *)kalloc();  // 分配一页物理内存
+    if(pa == 0)
+      panic("kalloc");
+    //KSTACK 计算内核栈对应的虚拟地址
+    uint64 va = KSTACK((int) (0));  // 将内核栈映射到固定的逻辑地址上
+    //将内核栈添加至本进程内核页表中
+    kvmmap(p->scx_kernelpgtbl,va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+    p->kstack = va;
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -133,12 +155,14 @@ found:
 // free a proc structure and the data hanging from it,
 // including user pages.
 // p->lock must be held.
+// 进程结束时，释放进程独享的页表和内核栈，回收资源
 static void
 freeproc(struct proc *p)
 {
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  // 释放进程的用户页表
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -149,7 +173,21 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+
+  //释放进程的内核栈
+  void* kstack_pa = (void*)kvmpa(p->scx_kernelpgtbl,p->kstack); //找到内核栈的物理内存
+  kfree(kstack_pa);
+  p->kstack=0;
+
+  //此处不能直接使用 proc_freepagetable 函数来释放，因为其不仅会释放页表本身，还会把页表内所有的叶节点释放
+  //会导致内核运行所需要的关键物理页被释放，导致崩溃
+
+  //递归释放进程独享的页表，释放页表本身所占用的空间，但是不释放页表所指向的物理页
+  scx_kvm_free_kernelpgtbl(p->scx_kernelpgtbl);
+  p->scx_kernelpgtbl = 0;
+  //释放完毕更新进程的状态
   p->state = UNUSED;
+
 }
 
 // Create a user page table for a given process,
@@ -453,6 +491,7 @@ wait(uint64 addr)
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
+// 修改进入内核态时使用进程的内核页表而不是全局的内核页表
 void
 scheduler(void)
 {
@@ -473,7 +512,16 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
-        swtch(&c->context, &p->context);
+
+        //切换到进程的内核页表
+        w_satp(MAKE_SATP(p->scx_kernelpgtbl));
+        sfence_vma(); //清除快表缓存，刷新 TLB 缓存，以确保地址转换表的更改生效
+
+        //调度，执行进程
+        swtch(&c->context,&p->context);
+
+        //切换回全局内核页表
+        kvminithart();
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.

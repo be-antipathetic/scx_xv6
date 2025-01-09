@@ -17,43 +17,64 @@ extern char trampoline[]; // trampoline.S
 
 /*
  * create a direct-map page table for the kernel.
+   重写 kvminit ，将 UART、virtio等内核映射抽离出来，为每个进程的内核页表
+   重新映射一次
  */
 void
 kvminit()
 {
-  //分配一个物理内存页来保存根页表页
-  kernel_pagetable = (pagetable_t) kalloc(); 
-  memset(kernel_pagetable, 0, PGSIZE);// 将根页表页全部填充为0,填充4096个字节的0
+  // 全局内核页表使用 kvminit 来初始化
+  kernel_pagetable = scx_kvminit_newpgtbl();
 
+}
+//抽离出来的 UART、virtio 等映射代码
+void
+scx_kvm_map_pagetable(pagetable_t pagetable)
+{
   // uart registers
-  kvmmap(UART0, UART0, PGSIZE, PTE_R | PTE_W);
+  kvmmap(pagetable,UART0, UART0, PGSIZE, PTE_R | PTE_W);
 
   // virtio mmio disk interface
-  kvmmap(VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+  kvmmap(pagetable,VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
 
   // CLINT
-  kvmmap(CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+  kvmmap(pagetable,CLINT, CLINT, 0x10000, PTE_R | PTE_W);
 
   // PLIC
-  kvmmap(PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+  kvmmap(pagetable,PLIC, PLIC, 0x400000, PTE_R | PTE_W);
 
   // map kernel text executable and read-only.
-  kvmmap(KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+  kvmmap(pagetable,KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
 
   // map kernel data and the physical RAM we'll make use of.
-  kvmmap((uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+  kvmmap(pagetable,(uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
 
   // map the trampoline for trap entry/exit to
   // the highest virtual address in the kernel.
-  kvmmap(TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
-}
+  kvmmap(pagetable,TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
 
+}
+// 创建内核页表,其他进程也可以使用此函数创建自己的内核页表
+pagetable_t
+scx_kvminit_newpgtbl()
+{
+   //分配一个物理内存页来保存根页表页
+   pagetable_t pagetable = (pagetable_t)kalloc();
+   memset(pagetable,0,PGSIZE); // 将根页表页全部填充为0,填充4096个字节的0
+   
+   scx_kvm_map_pagetable(pagetable); //向内核页表加载
+
+   return pagetable;
+}
 // Switch h/w page table register to the kernel's page table,
 // and enable paging.
 void
 kvminithart()
 {
+  //cpu使用 kernel_pagetable 做地址翻译
   w_satp(MAKE_SATP(kernel_pagetable));
+  //每个cpu在TLB中缓存了pte，
+  //当xv6系统需要更换页表时，必须使cpu禁止tlb中的pte，risv有一个指令
   sfence_vma();
 }
 
@@ -126,12 +147,12 @@ walkaddr(pagetable_t pagetable, uint64 va)
 // add a mapping to the kernel page table.
 // only used when booting.
 // does not flush TLB or enable paging.
-// 专门负责建设一个内核的页表
+// 修改 kvmmap ，将本来只用于内核页表的 map 更改为可以对任何页表进行
 void
-kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)
+kvmmap(pagetable_t pagetable, uint64 va, uint64 pa, uint64 sz, int perm)
 {
-  // 调用 mappages 函数在 kernel_pagetable 内核页表中建立虚拟地址到物理地址的映射
-  if(mappages(kernel_pagetable, va, sz, pa, perm) != 0)
+  // 调用 mappages 函数在 pagetable 页表中建立虚拟地址到物理地址的映射
+  if(mappages(pagetable, va, sz, pa, perm) != 0)
     panic("kvmmap");
 }
 
@@ -139,14 +160,15 @@ kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)
 // a physical address. only needed for
 // addresses on the stack.
 // assumes va is page aligned.
+// 修改 kvmpa ，原来只处理内核进程的页表，现在可以处理其他进程的内核页表
 uint64
-kvmpa(uint64 va)
+kvmpa(pagetable_t pagetable , uint64 va)
 {
   uint64 off = va % PGSIZE;
   pte_t *pte;
   uint64 pa;
   
-  pte = walk(kernel_pagetable, va, 0);
+  pte = walk(pagetable, va, 0);  // kernel_pagetable 改为参数 pagetable
   if(pte == 0)
     panic("kvmpa");
   if((*pte & PTE_V) == 0)
@@ -494,4 +516,21 @@ int  scx_vmprint(pagetable_t pagetable)
   printf("page table %p\n",pagetable);
   return scx_pgtblprint(pagetable,0);
 
+}
+
+//递归释放一个内核页表中的所有映射，但是不释放其指向的物理页
+void 
+scx_kvm_free_kernelpgtbl(pagetable_t pagetable){
+  for(int i= 0 ; i<512 ; i++)
+  {
+    pte_t pte = pagetable[i]; //获取页表项目
+    uint64 child = PTE2PA(pte);
+    if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0)
+    {
+      scx_kvm_free_kernelpgtbl((pagetable_t)child);
+      pagetable[i]=0;  // 递归调用结束后，将页表项也置0
+    }
+  }
+    kfree((void*)pagetable); // 释放当前级别页表所占用空间
+  
 }
