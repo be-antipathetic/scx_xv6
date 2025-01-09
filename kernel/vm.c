@@ -423,18 +423,21 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
+    pa0 = walkaddr(pagetable, va0); //直接使用 srcva 也能得到同一块物理内存
     if(pa0 == 0)
       return -1;
-    n = PGSIZE - (srcva - va0); 
+    //计算本页从 scrva 开始还剩多少字节.确保复制的 n 在同一页内存里
+    n = PGSIZE - (srcva - va0);
+    //需要复制的字节数 len 做比较，取较小的值作为本次实际要复制的字节数 
     if(n > len)
       n = len;
-    memmove(dst, (void *)(pa0 + (srcva - va0)), n);
+    // 由于内核页表的直接映射特性，dst 不需要转换成物理地址.
+    memmove(dst, (void *)(pa0 + (srcva - va0)), n); // 从 dst 开始拷贝数据
 
-    len -= n;
-    dst += n;
-    srcva = va0 + PGSIZE;
-  }
+    len -= n; // len 减去已经拷贝好的值
+    dst += n; // dst 更新
+    srcva = va0 + PGSIZE; //切换到下一页
+  } 
   return 0;
 }
 
@@ -459,6 +462,7 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 
     char *p = (char *) (pa0 + (srcva - va0));
     while(n > 0){
+      // 如果判断字符为 '\0'，则结束复制
       if(*p == '\0'){
         *dst = '\0';
         got_null = 1;
