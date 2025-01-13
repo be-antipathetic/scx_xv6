@@ -24,7 +24,7 @@ void
 kvminit()
 {
   // 全局内核页表使用 kvminit 来初始化
-  kernel_pagetable = scx_kvminit_newpgtbl();\
+  kernel_pagetable = scx_kvminit_newpgtbl();
 
   // 全局内核页表仍需要映射 CLIENT
   kvmmap(kernel_pagetable,CLINT, CLINT, 0x10000, PTE_R | PTE_W);
