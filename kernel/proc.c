@@ -258,6 +258,9 @@ userinit(void)
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
+  
+  //同步程序内存映射到进程内核页表中
+  scx_kvmcopymappings(p->pagetable,p->scx_kernelpgtbl,0,p->sz);
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
@@ -273,19 +276,33 @@ userinit(void)
 
 // Grow or shrink user memory by n bytes.
 // Return 0 on success, -1 on failure.
+// 用于动态调整进程的内存大小，n>0 则给进程增加 n 个字节。n<0 则给进程减小几个字节
 int
 growproc(int n)
 {
   uint sz;
   struct proc *p = myproc();
 
-  sz = p->sz;
+  sz = p->sz; //当前内存的大小
   if(n > 0){
-    if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
+    uint64  newsz ;
+    if((newsz = uvmalloc(p->pagetable, sz, sz + n)) == 0) 
+    {
       return -1;
     }
-  } else if(n < 0){
-    sz = uvmdealloc(p->pagetable, sz, sz + n);
+    // 内核页表中的映射同步扩大
+    if(scx_kvmcopymappings(p->pagetable,p->scx_kernelpgtbl,sz,n)!=0)
+    {
+      //向内核页表复制失败则释放进程中刚刚申请的内存
+      uvmdealloc(p->pagetable,newsz,sz);
+      return -1 ;
+    }
+    sz = newsz;
+  } else if(n < 0)
+  {
+    uvmdealloc(p->pagetable, sz, sz + n);
+    //内核页表中的映射同步缩小,由于进程页表中已经对物理内存释放掉了，因此此时内核页表仅仅释放掉映射关系即可
+    sz = scx_kvmdealloc(p->scx_kernelpgtbl,sz,sz+n);
   }
   p->sz = sz;
   return 0;
@@ -306,7 +323,9 @@ fork(void)
   }
 
   // Copy user memory from parent to child.
-  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
+  // 加入调用 kvmcopymappings 将新进程的用户页表映射拷贝一份至新进程内核页表中
+  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0 || 
+    scx_kvmcopymappings(np->pagetable,np->scx_kernelpgtbl,0,p->sz)< 0 ){
     freeproc(np);
     release(&np->lock);
     return -1;

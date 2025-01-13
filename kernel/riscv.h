@@ -316,6 +316,8 @@ static inline void
 sfence_vma()
 {
   // the zero, zero means flush all TLB entries.
+  // asm 关键字用于在 c 代码中嵌入汇编代码
+  // volatile 使编译器不优化这条指令
   asm volatile("sfence.vma zero, zero");
 }
 
@@ -323,7 +325,7 @@ sfence_vma()
 #define PGSIZE 4096 // bytes per page  页面大小为 4KB 
 #define PGSHIFT 12  // bits of offset within a page
 
-#define PGROUNDUP(sz)  (((sz)+PGSIZE-1) & ~(PGSIZE-1)) // 向上取整
+#define PGROUNDUP(sz)  (((sz)+PGSIZE-1) & ~(PGSIZE-1)) // 向上取整,将其变为 PGSIZE 的倍数
 #define PGROUNDDOWN(a) (((a)) & ~(PGSIZE-1)) // 向下取整 清空 a 地址中的偏移量 offset
 
 #define PTE_V (1L << 0) // valid  PTE_V 指示PTE是否存在

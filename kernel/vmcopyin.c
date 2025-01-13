@@ -26,6 +26,8 @@ statscopyin(char *buf, int sz) {
 // Copy from user to kernel.
 // Copy len bytes to dst from virtual address srcva in a given page table.
 // Return 0 on success, -1 on error.
+// 与原来的 copyin 相比，copyinnew 没有将虚拟地址转换为物理地址，直接使用源虚拟地址进行 memove
+// 由于已经实现了用户页表复制到了内核页表，因此全都使用虚拟地址即可，地址的翻译交由硬件
 int
 copyin_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
@@ -34,7 +36,7 @@ copyin_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
   if (srcva >= p->sz || srcva+len >= p->sz || srcva+len < srcva)
     return -1;
   memmove((void *) dst, (void *)srcva, len);
-  stats.ncopyin++;   // XXX lock
+  stats.ncopyin++;   // XXX lock 用来记录copy的次数
   return 0;
 }
 

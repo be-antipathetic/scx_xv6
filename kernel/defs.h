@@ -181,6 +181,9 @@ int             copyinstr(pagetable_t, char *, uint64, uint64);
 int             scx_vmprint(pagetable_t pagetable); //打印页表函数声明
 pagetable_t     scx_kvminit_newpgtbl(); // 创建内核页表
 void            scx_kvm_free_kernelpgtbl(pagetable_t pagetable); // 递归释放进程的内核页表
+int             scx_kvmcopymappings(pagetable_t src, pagetable_t dst ,uint64 start,uint64 sz); //将用户页表拷贝至进程内核页表
+uint64          scx_kvmdealloc(pagetable_t pagetable, uint64 oldsz , uint64 newsz);  // 用来缩减内存，用于内核页表和用户页内存映射的同步
+
 // plic.c
 void            plicinit(void);
 void            plicinithart(void);
@@ -203,6 +206,10 @@ void            statsinc(void);
 
 // sprintf.c
 int             snprintf(char*, int, char*, ...);
+
+// vmcopyin.c 
+int             copyin_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len);
+int             copyinstr_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max);
 
 #ifdef LAB_NET
 // pci.c
