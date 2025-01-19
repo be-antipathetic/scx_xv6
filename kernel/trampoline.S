@@ -26,9 +26,10 @@ uservec:
         
 	# swap a0 and sscratch
         # so that a0 is TRAPFRAME
-        csrrw a0, sscratch, a0
+        csrrw a0, sscratch, a0 # 交换 t0 和 sscratch 寄存器的值
 
         # save the user registers in TRAPFRAME
+        # 使用 sd(存储双字) 指令将各种用户寄存器的值存储到 trapframe 结构体中
         sd ra, 40(a0)
         sd sp, 48(a0)
         sd gp, 56(a0)
@@ -60,8 +61,8 @@ uservec:
         sd t5, 272(a0)
         sd t6, 280(a0)
 
-	# save the user a0 in p->trapframe->a0
-        csrr t0, sscratch
+	# save the user a0 in p->trapframe->a0 
+        csrr t0, sscratch  
         sd t0, 112(a0)
 
         # restore kernel stack pointer from p->trapframe->kernel_sp

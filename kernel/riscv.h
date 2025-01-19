@@ -50,7 +50,7 @@ static inline uint64
 r_sstatus()
 {
   uint64 x;
-  asm volatile("csrr %0, sstatus" : "=r" (x) );
+  asm volatile("csrr %0, sstatus" : "=r" (x) ); //汇编代码
   return x;
 }
 
@@ -200,6 +200,14 @@ r_satp()
   uint64 x;
   asm volatile("csrr %0, satp" : "=r" (x) );
   return x;
+}
+// 获取当前函数的 fp，其保存在 s0 寄存器中
+static inline uint64
+r_fp()
+{
+  uint64 x ;
+  asm volatile("mv %0, s0" : "=r" (x));
+  return x ;
 }
 
 // Supervisor Scratch register, for early trap handler in trampoline.S.

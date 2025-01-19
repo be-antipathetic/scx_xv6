@@ -3,6 +3,7 @@
 #include "kernel/stat.h"
 #include "user/user.h"
 
+__attribute__((noinline))
 int g(int x) {
   return x+3;
 }
@@ -12,6 +13,8 @@ int f(int x) {
 }
 
 void main(void) {
-  printf("%d %d\n", f(8)+1, 13);
+  //printf("%d %d\n", f(8)+1, 13);
+  unsigned int i = 0x00646c72;
+  printf("H%x Wo%s", 57616, &i);
   exit(0);
 }

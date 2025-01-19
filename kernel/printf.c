@@ -132,3 +132,17 @@ printfinit(void)
   initlock(&pr.lock, "pr");
   pr.locking = 1;
 }
+
+// 遍历帧指针打印函数地址
+void scx_backtrace()
+{
+  uint64 fp = r_fp();
+  printf("backtrace: \n");
+  while(PGROUNDDOWN(fp)!= PGROUNDUP(fp)) // 当前帧指针 fp 是否在有效的页范围内
+  {
+    uint64 ra = *(uint64*)(fp-8); // 取出函数的返回地址(fp 是高地址，栈生长方向由高到低)
+    printf("%p\n",ra);
+    fp = *(uint64*)(fp-16); // 另 fp 指向上一个函数的 fp
+  }
+
+}

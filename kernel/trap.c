@@ -39,24 +39,29 @@ usertrap(void)
   int which_dev = 0;
 
   if((r_sstatus() & SSTATUS_SPP) != 0)
-    panic("usertrap: not from user mode");
+    panic("usertrap: not from user mode"); //判断是否 trap 来自于用户空间还是内核空间
 
   // send interrupts and exceptions to kerneltrap(),
   // since we're now in the kernel.
+  // 向 stvec 寄存器中写入数据,这样内核中的陷阱将由 kernelvec 处理
+  // 由于此时还处于内核，如果再发生中断，应该交给 kernelvec 来处理,而不是 uservec
   w_stvec((uint64)kernelvec);
 
   struct proc *p = myproc();
   
   // save user program counter.
+  // 当程序还在内核中执行时，由于进程调度可能切换到另一个进程，并进入到那个程序的用户空间，
+  // 然后那个进程可能再调用一个系统调用进而导致SEPC寄存器的内容被覆盖。
   p->trapframe->epc = r_sepc();
   
+  // 根据 scause 寄存器内容找出 usertrap 的原因
   if(r_scause() == 8){
     // system call
 
     if(p->killed)
       exit(-1);
 
-    // sepc points to the ecall instruction,
+    // sepc points to the ecall instruction, 当前 sepc 指向了 ecall 指令，恢复时需要指向 ecall 的下一条指令
     // but we want to return to the next instruction.
     p->trapframe->epc += 4;
 
@@ -64,6 +69,7 @@ usertrap(void)
     // so don't enable until done with those registers.
     intr_on();
 
+    //调用 syscall 函数，根据系统调用的编号查找相应的系统调用函数
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
@@ -94,9 +100,15 @@ usertrapret(void)
   // we're about to switch the destination of traps from
   // kerneltrap() to usertrap(), so turn off interrupts until
   // we're back in user space, where usertrap() is correct.
+  // 首先关闭了中断。之前在系统调用的过程中打开了中断，这里关闭中断是因为要更新
+  // STVEC寄存器来指向用户空间的trap处理代码，而之前在内核中的时候，我们指向的是
+  // 内核空间的trap处理代码。将STVEC更新到指向用户空间的trap处理代码时，我们仍然
+  // 在内核中执行代码。如果这时发生了一个中断，那么程序执行会走向用户空间的trap
+  // 处理代码，即便现在仍然在内核中，出于各种各样具体细节的原因，这会导致内核出错。
   intr_off();
 
   // send syscalls, interrupts, and exceptions to trampoline.S
+  // 设置 stvec 寄存器指向 trampoline 代码，
   w_stvec(TRAMPOLINE + (uservec - trampoline));
 
   // set up trapframe values that uservec will need when
